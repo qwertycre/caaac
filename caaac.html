@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>M1 GC</title>
+<style>
+* {margin:0;padding:0;box-sizing:border-box;user-select:none;-webkit-tap-highlight-color:transparent;font-family:"Dela Gothic One",sans-serif;}
+body{display:flex;justify-content:center;align-items:center;background-color:#121212;color:#f1f1f1;padding:10px;margin-top:10px;}
+#overlay{position:fixed;inset:0;background:#000d;display:flex;flex-direction:column;justify-content:center;align-items:center;z-index:999;}
+video{width:300px;height:220px;border-radius:10px;border:2px solid #10b981;background:#000;object-fit:cover;transform:scaleX(-1);}
+#message{margin-top:10px;font-size:1.1em;text-align:center;}
+.container{display:none;flex-direction:column;justify-content:center;align-items:center;width:100%;max-width:600px;margin:auto;}
+.selection-container,.content-container{background-color:#1e1e1e;padding:20px;border-radius:10px;box-shadow:0 0 15px rgba(0,0,0,0.5);width:100%;}
+.selection-container h2,.content-container h2{text-align:center;padding-bottom:10px;}
+.contents{display:flex;justify-content:center;}
+.btn{display:inline-block;margin:10px;padding:10px 15px;background-color:#1e90ff;color:white;border-radius:10px;text-decoration:none;text-align:center;font-size:1em;}
+.btn:hover{background-color:#007acc;}
+.myword1{background:#79ff5f;padding:10px 50px;border:1px solid #333;border-radius:10px;font-weight:bold;font-size:larger;font-family:"IBM Plex Sans Arabic",sans-serif;}
+.myword1:hover{background:#86fd6f;}
+</style>
+</head>
+<body>
+
+<div id="overlay">
+  <video id="video" autoplay></video>
+  <div id="message">يرجى مسح رمز الـ QR للدخول...</div>
+  <input type="file" id="fileInput" accept="image/*" style="margin-top:10px;">
+</div>
+
+<div class="container" id="content">
+  <div class="selection-container" id="selectionContainer">
+    <h2>🇵🇸</h2>
+    <h2>Choisissez le semestre</h2>
+    <div class="contents">
+      <a href="#" class="btn" onclick="goToPage('contentS1')">S1</a>
+      <a href="#" class="btn" onclick="goToPage('contentS2')">S2</a>
+    </div>
+  </div>
+
+  <div class="content-container" id="contentS1" style="display:none;">
+    <h2>🇵🇸 Semestre 1</h2>
+    <button class="btn" onclick="returnToSelection()">RETOUR</button>
+    <button class="myword1">سبحان الله و الحمد لله و لا اله الا الله و الله أكبر</button>
+  </div>
+
+  <div class="content-container" id="contentS2" style="display:none;">
+    <h2>🇵🇸 Semestre 2</h2>
+    <button class="btn" onclick="returnToSelection()">RETOUR</button>
+  </div>
+</div>
+
+<script src="https://unpkg.com/jsqr/dist/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@fingerprintjs/fingerprintjs@3/dist/fp.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-app.js";
+import { getDatabase, ref, get, set } from "https://www.gstatic.com/firebasejs/11.0.1/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyC4ffOpGSHS3fdRV1X0aztZU7D1hzttYq0",
+  authDomain: "my-id-19724.firebaseapp.com",
+  databaseURL: "https://my-id-19724-default-rtdb.firebaseio.com",
+  projectId: "my-id-19724",
+  storageBucket: "my-id-19724.firebasestorage.app",
+  messagingSenderId: "788057820357",
+  appId: "1:788057820357:web:b37f49ddb60ec489bd34ac",
+  measurementId: "G-5QX27XCFK6"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+const video = document.getElementById('video');
+const overlay = document.getElementById('overlay');
+const message = document.getElementById('message');
+const content = document.getElementById('content');
+const allowedCodes = ["123456", "654321", "112233", "445566", "4455667"];
+let scanning = false;
+let streamRef = null;
+const canvas = document.createElement("canvas");
+const ctx = canvas.getContext("2d");
+
+// 🔹 استخدام FingerprintJS لتوليد معرف ثابت للجهاز
+async function getDeviceFingerprint() {
+  if (localStorage.getItem("deviceId")) return localStorage.getItem("deviceId");
+  const fp = await FingerprintJS.load();
+  const result = await fp.get();
+  const deviceId = result.visitorId;
+  localStorage.setItem("deviceId", deviceId);
+  return deviceId;
+}
+
+// ✅ التحقق من قاعدة البيانات عند تحميل الصفحة
+(async () => {
+  const savedCode = localStorage.getItem("qr_code_value");
+  const deviceId = await getDeviceFingerprint();
+  if (savedCode) {
+    const snap = await get(ref(db, "codes/" + savedCode));
+    if (snap.exists() && snap.val().usedBy === deviceId) {
+      overlay.style.display = "none";
+      content.style.display = "flex";
+      return;
+    }
+  }
+  startCamera();
+})();
+
+async function startCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+    video.srcObject = stream;
+    streamRef = stream;
+    video.setAttribute("playsinline", true);
+    scanning = true;
+    scanLoop();
+  } catch (err) {
+    message.textContent = "فشل تشغيل الكاميرا!";
+    console.error(err);
+  }
+}
+
+function stopCamera() {
+  scanning = false;
+  if (streamRef) streamRef.getTracks().forEach(track => track.stop());
+  video.srcObject = null;
+  streamRef = null;
+}
+
+async function scanLoop() {
+  if (!scanning) return;
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, canvas.width, canvas.height);
+    if (code) await handleScannedCode(code.data.trim());
+  }
+  requestAnimationFrame(scanLoop);
+}
+
+async function handleScannedCode(scanned) {
+  if (!allowedCodes.includes(scanned)) { message.textContent = "كود غير صحيح ❌"; return; }
+  const codeRef = ref(db, "codes/" + scanned);
+  const snapshot = await get(codeRef);
+  const deviceId = await getDeviceFingerprint();
+
+  if (!snapshot.exists()) {
+    await set(codeRef, { used: true, usedBy: deviceId, time: Date.now() });
+    grantAccess(scanned);
+  } else if (snapshot.val().usedBy === deviceId) {
+    grantAccess(scanned);
+  } else {
+    message.textContent = "❌ هذا الكود مستعمل من جهاز آخر";
+  }
+}
+
+function grantAccess(scanned) {
+  message.textContent = "تم التحقق بنجاح ✅";
+  stopCamera();
+  localStorage.setItem("qr_access_granted", "true");
+  localStorage.setItem("qr_code_value", scanned);
+  setTimeout(() => {
+    overlay.style.display = "none";
+    content.style.display = "flex";
+  }, 800);
+}
+
+window.goToPage = function(pageId) {
+  document.querySelectorAll('.content-container').forEach(c => c.style.display = 'none');
+  document.getElementById('selectionContainer').style.display = 'none';
+  document.getElementById(pageId).style.display = 'block';
+}
+
+window.returnToSelection = function() {
+  document.querySelectorAll('.content-container').forEach(c => c.style.display = 'none');
+  document.getElementById('selectionContainer').style.display = 'block';
+}
+
+// مسح QR من صورة
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const img = new Image();
+  img.onload = async () => {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const code = jsQR(imageData.data, canvas.width, canvas.height);
+    if (code) await handleScannedCode(code.data.trim());
+    else message.textContent = "لا يوجد QR صالح في الصورة ❌";
+  };
+  img.src = URL.createObjectURL(file);
+});
+</script>
+</body>
+</html>
